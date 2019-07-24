@@ -1,0 +1,231 @@
+<div id="world" ></div>
+
+<style>
+body{
+  background-color: #dbe6e6;
+  font-family: "Open Sans";
+}
+
+#world{
+	position: absolute;
+	width:100%; 
+	height: 100%;
+  overflow:hidden;
+}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r80/three.js"></script>
+<script>
+    var scene,           //场景
+        camera,            //相机
+        gobalLight,        //环境光
+        shadowLight,       //方向光
+        renderer,          //渲染器
+        container,         //容器
+        hero,              //角色
+        brownMat,          //棕色方块
+        blueMat;           //白色方块
+
+    var PI = Math.PI;    // π
+    var rot = -1;        //
+
+    // 创建屏幕
+    function initScreen(){
+
+      // 创建放置动画的容器
+      container = document.getElementById('world');
+      var HEIGHT = container.offsetHeight;
+      var WIDTH = container.offsetWidth;
+
+     
+      // 创建场景(Scene)
+      scene = new THREE.Scene()
+
+
+      // 设置相机(camera) 
+      // 透视相机 PerspectiveCamera(fov,aspect,near,far）存在视距    正交投影相机
+      camera = new THREE.PerspectiveCamera( 50, WIDTH/HEIGHT, 1, 1000)//视场，长宽比，近面，远面
+      camera.position.x = 0;
+      camera.position.y = 0;
+      camera.position.z = 100;
+
+
+      // 设置渲染器(WebGLRenderer) alpha antialias
+      renderer = new THREE.WebGLRenderer({
+        alpha: true,
+        antialias: true
+      })
+      renderer.setSize(WIDTH, HEIGHT);
+      renderer.shadowMap.enabled = true;//开启渲染器阴影效果。
+      renderer.setPixelRatio(window.devicePixelRatio ? window.devicePixelRatio : 1)//像素比
+      container.appendChild(renderer.domElement);
+
+      // 监听窗口大小变化，如果窗口被调整大小，更新相机的长宽比。
+      window.addEventListener('resize', handleWindowResize, false);
+      handleWindowResize();
+    }
+
+    function handleWindowResize() {
+      var HEIGHT = container.offsetHeight;
+      var WIDTH = container.offsetWidth;
+      renderer.setSize(WIDTH, HEIGHT);
+      camera.aspect = WIDTH / HEIGHT;
+      camera.updateProjectionMatrix();//更新相机投影矩阵，必须在参数发生变化后调用。
+    }
+
+    // 添加光源
+    function createLights() {
+      //AmbientLight(环境光),基础光源
+      globalLight = new THREE.AmbientLight(0xffffff, 1)
+      // DirectionalLight(方向光)，产生阴影
+      shadowLight = new THREE.DirectionalLight(0xffffff, 1)
+      // 灯源开启"引起阴影"
+      shadowLight.castShadow = true;
+      // 设置阴影的位置、大小、清晰度
+      shadowLight.position.set(10, 8, 8)
+      shadowLight.shadow.camera.left = -40;
+      shadowLight.shadow.camera.right = 40;
+      shadowLight.shadow.camera.top = 40;
+      shadowLight.shadow.camera.bottom = -40;
+      shadowLight.shadow.camera.near = 1;
+      shadowLight.shadow.camera.far = 1000;
+      shadowLight.shadow.mapSize.width = shadowLight.shadow.mapSize.height = 2048
+
+      scene.add(globalLight);
+      scene.add(shadowLight);
+    }
+    
+    
+    Hero = function() {
+      // 材质(Material)
+      // 网格标准材质(Standard Material),有较好的质感,具有粗糙度和金属性的材质
+      var brownMat = new THREE.MeshStandardMaterial({
+        color: 0x401A07,
+        shading:THREE.FlatShading,  //着色方式，平面着色
+        roughness:1,  //粗糙度
+      });
+
+      // 高光网格材质(MeshPhongMaterial) 会给表面添加金属光泽，反光强度更大
+      var blueMat = new THREE.MeshPhongMaterial({
+        color: 0x5b9696,
+        shading:THREE.FlatShading, 
+      });
+
+      // 将在以后的每一帧中增加，并将用作循环的旋转角度。
+      this.runningCycle = 0;
+
+      // 创建mesh对象
+      this.mesh = new THREE.Group();
+      // 创建身体
+      this.body = new THREE.Group();
+      this.mesh.add(this.body);
+
+      // 躯干
+      var torsoGeom = new THREE.CubeGeometry(8,8,8);//立方几何体
+      this.torso = new THREE.Mesh(torsoGeom, blueMat);
+      this.torso.position.y = 8;
+      this.torso.castShadow = true;
+      this.body.add(this.torso);
+      
+      // 左手、右手
+      var handGeom = new THREE.CubeGeometry(3,3,3);
+      this.handR = new THREE.Mesh(handGeom, brownMat);
+      this.handR.position.z=7;
+      this.handR.position.y=8;
+      this.body.add(this.handR);
+      this.handL = this.handR.clone();
+      this.handL.position.z = - this.handR.position.z;
+      this.body.add(this.handL);
+      
+      // 头部
+      var headGeom = new THREE.CubeGeometry(16,16,16);
+      this.head = new THREE.Mesh(headGeom, blueMat);
+      this.head.position.y = 21;
+      this.head.castShadow = true;
+      this.body.add(this.head);
+      
+      //左脚、右脚
+      var legGeom = new THREE.CubeGeometry(8,3,5);
+      this.legR = new THREE.Mesh(legGeom, brownMat);
+      this.legR.position.x = 0;
+      this.legR.position.z = 7;
+      this.legR.position.y = 0;
+      this.legR.castShadow = true;
+      this.body.add(this.legR);
+      this.legL = this.legR.clone();
+      this.legL.position.z = - this.legR.position.z;
+      this.legL.castShadow = true;
+      this.body.add(this.legL);
+
+      // 身体的每个部分都投射和接收阴影
+      this.body.traverse(function(object) {
+        if (object instanceof THREE.Mesh) {
+          object.castShadow = true;  //开启引起阴影和接受阴影
+          object.receiveShadow = true;
+        }
+      });
+
+    }
+
+    // 角色移动
+    Hero.prototype.run = function(){
+      // 每帧角度加0.1，数值越高动画越快 
+      this.runningCycle += .04;  
+      var t = this.runningCycle;
+      // 角度在0到2PI之间
+      t = t % (2*PI);
+      // 振幅作为腿部运动的主要半径
+      var amp = 4;
+      this.legR.position.x = Math.cos(t) * amp;
+      this.legR.position.y = Math.max(0, -Math.sin(t) * amp);
+      this.legL.position.x = Math.cos(t + PI) * amp;
+      this.legL.position.y = Math.max(0, -Math.sin(t + PI) * amp);
+
+      if (t>PI){
+        this.legR.rotation.z = Math.cos(t * 2 + PI/2) * PI/4; 
+        this.legL.rotation.z = 0; 
+      } else{
+        this.legR.rotation.z = 0; 
+        this.legL.rotation.z = Math.cos(t * 2 + PI/2) *  PI/4;  
+      }
+
+      this.handR.position.x = -Math.cos( t ) * amp;
+      this.handR.rotation.z = -Math.cos( t ) * PI/8;
+      this.handL.position.x = -Math.cos( t + PI) * amp;
+      this.handL.rotation.z = -Math.cos( t + PI) * PI/8;
+
+      this.head.position.y = 21 - Math.cos(  t * 2 ) * amp * .3;
+      this.head.rotation.x = Math.cos( t ) * amp * .02;
+      this.head.rotation.y = Math.cos( t ) * amp * .01;
+
+      this.torso.position.y = 8 - Math.cos( t * 2 ) * amp * .2
+      this.torso.rotation.y = -Math.cos( t + PI) * amp * .05
+
+    }
+    
+    //将角色添加到场景中
+    function createHero() {
+      hero = new Hero();
+      hero.mesh.position.y=-15;
+      scene.add(hero.mesh);
+    }
+
+    // 循环
+    function loop(){
+      hero.run();
+      rot+=.01;  
+      hero.mesh.rotation.y = -Math.PI/4 + Math.sin(rot * PI/8); 
+      renderer.render(scene, camera);  //在每个帧中渲染场景
+      requestAnimationFrame(loop);  //在下一个帧中调用loop函数
+    }
+
+
+
+    function init(event){
+      initScreen();
+      createLights(); 
+      createHero();
+      loop();
+    }
+    //在页面加载后初始化demo
+    window.addEventListener('load', init, false);
+</script>
